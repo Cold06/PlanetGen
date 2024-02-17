@@ -42,11 +42,10 @@ void CalculateNormals(const TArray<FVector>& Vertices, const TArray<int32>& Tria
 	}
 }
 
-UTerrianMesh::UTerrianMesh()
+UTerrianMesh::UTerrianMesh(const FObjectInitializer& ObjectInitializer)
+: Super(ObjectInitializer)
 {
 	PrimaryComponentTick.bCanEverTick = true;
-	ProceduralMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("Test"));
-	ProceduralMesh->AttachToComponent(this, FAttachmentTransformRules::KeepRelativeTransform);
 	bDirty = true;
 	UpdateAxis();
 }
@@ -55,24 +54,23 @@ void UTerrianMesh::SetGridSize(int32 newValue)
 {
 	GridSize = newValue;
 	bDirty = true;
+	static FName Reason("SetGridSize");
+	RebuildMesh(Reason);
 }
 
 void UTerrianMesh::SetLocalUp(FVector newValue)
 {
 	LocalUp = newValue;
 	bDirty = true;
+	static FName Reason("SetLocalUp");
+	RebuildMesh(Reason);
 }
 
-void UTerrianMesh::SetWorldSpaceScalar(float newValue)
-{
-	WorldSpaceScalar = newValue;
-	bDirty = true;
-}
-
-void UTerrianMesh::SetMaterial(UMaterialInterface* NewLandscapeMaterial)
+void UTerrianMesh::BPSetMaterial(UMaterialInterface* NewLandscapeMaterial)
 {
 	Material = NewLandscapeMaterial;
-	RebuildMesh();
+	static FName Reason("BPSetMaterial");
+	RebuildMesh(Reason);
 }
 
 void UTerrianMesh::PostInitProperties()
@@ -80,11 +78,9 @@ void UTerrianMesh::PostInitProperties()
 	Super::PostInitProperties();
 	RebindDelegates();
 
-	if (bDirty)
-	{
-		bDirty = false;
-		RebuildMesh();
-	}
+	bDirty = true;
+	static FName Reason("PostInitProperties");
+	RebuildMesh(Reason);
 }
 
 void UTerrianMesh::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
@@ -96,16 +92,16 @@ void UTerrianMesh::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 		return;
 	}
 	
-	static FName GSX("GridSizeX");
-	static FName GSY("GridSizeY");
-	static FName SS("StepSize");
-	static FName WSS("WorldSpaceScalar");
+	static FName GSX("GridSize");
+	static FName LU("LocalUp");
 
 	const auto name = PropertyChangedEvent.Property->NamePrivate;
 	
-	if (name == GSX || name == GSY || name == SS || name == WSS)
+	if (name == GSX || name == LU)
 	{
-		RebuildMesh();
+		bDirty = true;
+		static FName Reason("PostEditChangeProperty");
+		RebuildMesh(Reason);
 	}
 
 	RebindDelegates();
@@ -113,12 +109,23 @@ void UTerrianMesh::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 
 void UTerrianMesh::PostDuplicate(EDuplicateMode::Type DuplicateMode)
 {
-	Super::PostDuplicate(DuplicateMode);
+	Super::PostDuplicate(DuplicateMode == EDuplicateMode::Type::Normal);
 	RebindDelegates();
-	RebuildMesh();
+
+	UE_LOG(LogTemp, Warning, TEXT("Duplicate %i"), GridSize);
+	
+	static FName Reason("PostDuplicate");
+	RebuildMesh(Reason);
 }
 
-void UTerrianMesh::RebuildMesh()
+void UTerrianMesh::PostLoad()
+{
+	Super::PostLoad();
+	static FName Reason("PostLoad");
+	RebuildMesh(Reason);
+}
+
+void UTerrianMesh::RebuildMesh(FName Reason)
 {
 	double Start = FPlatformTime::Seconds();
 
@@ -126,12 +133,6 @@ void UTerrianMesh::RebuildMesh()
 
 	if (!ShapeSettings) return;
 
-	if (!IsValid(ProceduralMesh))
-	{
-		UE_LOG(LogActor, Error, TEXT("UTerrianMesh Without ProceduralMesh"));
-		return;
-	}
-	
 	TArray<FVector> Vertices;
 	TArray<int32> Triangles;
 	TArray<FVector> Normals;
@@ -175,17 +176,46 @@ void UTerrianMesh::RebuildMesh()
 
 	CalculateNormals(Vertices, Triangles, Normals);
 	
-	ProceduralMesh->CreateMeshSection_LinearColor(0, Vertices, Triangles, Normals, UV0, TArray<FLinearColor>(), TArray<FProcMeshTangent>(), false);
-	ProceduralMesh->SetMaterial(0, Material);
+	CreateMeshSection_LinearColor(0, Vertices, Triangles, Normals, UV0, TArray<FLinearColor>(), TArray<FProcMeshTangent>(), false);
+	SetMaterial(0, Material);
 
 	double End = FPlatformTime::Seconds();
-	UE_LOG(LogTemp, Warning, TEXT("Face took %f to build. with size of %i %s %p"), End - Start, GridSize, *GetReadableName(), ProceduralMesh);
+	UE_LOG(LogTemp, Warning, TEXT("Face took %f to build. with size of %i %s %p reason %s"), End - Start, GridSize, *GetReadableName(), this, *Reason.ToString());
 }
 
 void UTerrianMesh::SetShapeSettings(UShapeSettings* NewShapeSettings)
 {
 	ShapeSettings = NewShapeSettings;
-	RebuildMesh();
+	static FName Reason("SetShapeSettings");
+	RebuildMesh(Reason);
+}
+
+TStructOnScope<FActorComponentInstanceData> UTerrianMesh::GetComponentInstanceData() const
+{
+	TStructOnScope<FActorComponentInstanceData> InstanceData = MakeStructOnScope<FActorComponentInstanceData, FTerrianMeshInstanceData>(this);
+	FTerrianMeshInstanceData* MyComponentInstanceData = InstanceData.Cast<FTerrianMeshInstanceData>();
+	
+	MyComponentInstanceData->GridSize = GridSize;
+	MyComponentInstanceData->LocalUp = LocalUp;
+	MyComponentInstanceData->Material = Material;
+	MyComponentInstanceData->ShapeSettings = ShapeSettings;
+	MyComponentInstanceData->Transform = GetComponentTransform();
+
+	return InstanceData;
+}
+
+void UTerrianMesh::ApplyComponentInstanceData(FTerrianMeshInstanceData* ComponentInstanceData, const bool bPostUCS)
+{
+	GridSize = ComponentInstanceData->GridSize;
+	LocalUp = ComponentInstanceData->LocalUp;
+	Material = ComponentInstanceData->Material;
+	ShapeSettings = ComponentInstanceData->ShapeSettings;
+
+	SetWorldTransform(ComponentInstanceData->Transform);
+
+	bDirty = true;
+	static FName Reason("ApplyComponentInstanceData");
+	RebuildMesh(Reason);
 }
 
 void UTerrianMesh::BeginPlay()
@@ -247,7 +277,8 @@ void UTerrianMesh::UnbindPropertyChangeDelegate()
 void UTerrianMesh::OnExternalPropChanged(const FName PropertyName)
 {
 	bDirty = true;
-	RebuildMesh();
+	static FName Reason("OnExternalPropChanged");
+	RebuildMesh(Reason);
 }
 
 void UTerrianMesh::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
@@ -257,7 +288,8 @@ void UTerrianMesh::TickComponent(float DeltaTime, ELevelTick TickType, FActorCom
 	if (bDirty)
 	{
 		bDirty = false;
-		RebuildMesh();
+		static FName Reason("TickComponent");
+		RebuildMesh(Reason);
 	}
 }
 

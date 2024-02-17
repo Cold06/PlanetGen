@@ -10,26 +10,32 @@
 #include "TerrianMesh.generated.h"
 
 
+
+
+
 UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
-class PLANETGENERATOR_API UTerrianMesh : public USceneComponent
+class PLANETGENERATOR_API UTerrianMesh : public UProceduralMeshComponent
 {
 	GENERATED_BODY()
 
 public:	
-	// Sets default values for this component's properties
-	UTerrianMesh();
+	UTerrianMesh(const FObjectInitializer& ObjectInitializer);
 
 	bool bDirty = true;
 	
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, BlueprintSetter=SetGridSize);
-	int32 GridSize = 10;
-
-	UPROPERTY(BlueprintReadWrite, EditAnywhere,BlueprintSetter=SetWorldSpaceScalar);
-	float WorldSpaceScalar = 1;
+	int32 GridSize = 2;
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere,BlueprintSetter=SetLocalUp);
 	FVector LocalUp = FVector::UpVector;
 
+	UPROPERTY(EditAnywhere, BlueprintSetter=BPSetMaterial)
+	TObjectPtr<UMaterialInterface> Material;
+
+	
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, BlueprintSetter=SetShapeSettings);
+	UShapeSettings* ShapeSettings;
+	
 	UFUNCTION(BlueprintSetter)
 	void SetGridSize(int32 newValue);
 
@@ -39,29 +45,26 @@ public:
 	UFUNCTION(BlueprintSetter)
 	void SetWorldSpaceScalar(float newValue);
 
-	UPROPERTY(EditAnywhere, BlueprintSetter=SetMaterial)
-	TObjectPtr<UMaterialInterface> Material;
-
 	UFUNCTION(BlueprintSetter)
-	void SetMaterial(UMaterialInterface* NewLandscapeMaterial);
+	void BPSetMaterial(UMaterialInterface* NewLandscapeMaterial);
 	
 	virtual void PostInitProperties() override;
 
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 
 	virtual void PostDuplicate(EDuplicateMode::Type DuplicateMode) override;
+
+	virtual void PostLoad() override;
 	
-	void RebuildMesh();
-
-	UPROPERTY();
-	UProceduralMeshComponent* ProceduralMesh;
-
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, BlueprintSetter=SetShapeSettings);
-	UShapeSettings* ShapeSettings;
+	void RebuildMesh(FName Reason);
 
 	UFUNCTION(BlueprintSetter)
 	void SetShapeSettings(UShapeSettings* NewShapeSettings);
 
+	virtual TStructOnScope<FActorComponentInstanceData> GetComponentInstanceData() const override;
+
+	void ApplyComponentInstanceData(struct FTerrianMeshInstanceData* ComponentInstanceData, const bool bPostUCS);
+	
 private:
 	NoiseFilter* noiseFilter;
 	
@@ -79,8 +82,6 @@ private:
 	void UnbindPropertyChangeDelegate();
 	FDelegateHandle OnShapeSettingsChangedDelegateHandle;
 	FDelegateHandle OnNoiseSettingsChangedDelegateHandle;
-
-	
 	
 public:
 	void OnExternalPropChanged(const FName PropertyName);
@@ -88,4 +89,47 @@ public:
 	// Called every frame
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
+	friend struct FTerrianMeshInstanceData;
+};
+
+USTRUCT()
+struct FTerrianMeshInstanceData : public FSceneComponentInstanceData {
+	GENERATED_BODY()
+
+public:
+	UPROPERTY();
+	int32 GridSize = 2;
+
+	UPROPERTY();
+	FVector LocalUp = FVector::UpVector;
+
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> Material;
+
+	UPROPERTY()
+	FTransform Transform;
+	
+	UPROPERTY();
+	UShapeSettings* ShapeSettings;
+
+public:
+	FTerrianMeshInstanceData() {}
+	explicit FTerrianMeshInstanceData(const UTerrianMesh* SourceComponent)
+		: FSceneComponentInstanceData()
+	{
+		bUseForceVirtualApplyCheck = true;
+	}
+	virtual ~FTerrianMeshInstanceData() = default;
+
+	virtual bool ShouldForceApply() override
+	{
+		return true;
+	};
+	
+	virtual void ApplyToComponent(UActorComponent* Component, const ECacheApplyPhase CacheApplyPhase) override {
+		Super::ApplyToComponent(Component, CacheApplyPhase);
+		
+		CastChecked<UTerrianMesh>(Component)->ApplyComponentInstanceData(
+				this, (CacheApplyPhase == ECacheApplyPhase::PostUserConstructionScript));
+	}
 };
