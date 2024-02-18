@@ -13,8 +13,18 @@ APlanetLodManager::APlanetLodManager()
 {
 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
+	SceneRoot  = CreateDefaultSubobject<USceneComponent>(TEXT("ROOT")); 
+	RootComponent = SceneRoot;
+}
 
-	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("ROOT"));
+void APlanetLodManager::SetShapeSettings(UShapeSettings* NewShapeSettings)
+{
+	ShapeSettings = NewShapeSettings;
+}
+
+void APlanetLodManager::BPSetMaterial(UMaterialInterface* NewLandscapeMaterial)
+{
+	Material = NewLandscapeMaterial;
 }
 
 // Called when the game starts or when spawned
@@ -86,28 +96,32 @@ static TArray<FVector> GLOBAL_Directions = {
 
 
 
-
 struct QuadTreeNode
 {
+	CellType nodeType;
 	FVector2D offset; // Offset from the parent node
 	float size; // Size of the node
 	int depth; // Depth of the node in the tree
 	bool bHasPoint; // Flag indicating if the node has a point
 	FVector2D point; // The point contained in the node
+	FVector Up; // The point contained in the node
 	TArray<QuadTreeNode*> children; // Pointers to children nodes
 
 	NodeKey getKey()
 	{
 		NodeKey key;
 		key.Offset = offset;
+		key.nodeType = nodeType;
+		key.Size = size;
 		key.Depth = depth;
+		key.Up = Up;
 		return key;
 	}
 	
-	QuadTreeNode(FVector2D _offset, float _size, int _depth) : offset(_offset), size(_size), depth(_depth),
-	                                                           bHasPoint(false)
+	QuadTreeNode(FVector2D _offset, float _size, int _depth, FVector _Up) : offset(_offset), size(_size), depth(_depth),
+	                                                           bHasPoint(false), Up(_Up)
 	{
-		
+		nodeType = CellType::Final;
 		point = FVector2D::ZeroVector;
 		children.Init(nullptr, 4); // Four children for a quad tree
 	}
@@ -119,19 +133,20 @@ void InsertPoint(QuadTreeNode* node, const FVector2D& point)
 {
 	if (node->depth == 0)
 	{
+		node->nodeType = CellType::Player;
 		node->point = point;
 		node->bHasPoint = true;
 	} else {
 		float halfSize = node->size * 0.5f;
-
+		node->nodeType = CellType::Holding;
 		// LEFT TOP 
-		node->children[0] = new QuadTreeNode(node->offset + FVector2D(0, 0), halfSize, node->depth - 1);
+		node->children[0] = new QuadTreeNode(node->offset + FVector2D(0, 0), halfSize, node->depth - 1, node->Up);
 		// RIGHT TOP 
-		node->children[1] = new QuadTreeNode(node->offset + FVector2D(halfSize, 0), halfSize, node->depth - 1);
+		node->children[1] = new QuadTreeNode(node->offset + FVector2D(halfSize, 0), halfSize, node->depth - 1, node->Up);
 		// LEFT BOTTOM 
-		node->children[2] = new QuadTreeNode(node->offset + FVector2D(0, halfSize), halfSize, node->depth - 1);
+		node->children[2] = new QuadTreeNode(node->offset + FVector2D(0, halfSize), halfSize, node->depth - 1, node->Up);
 		// RIGHT BOTTOM
-		node->children[3] = new QuadTreeNode(node->offset + FVector2D(halfSize, halfSize), halfSize, node->depth - 1);
+		node->children[3] = new QuadTreeNode(node->offset + FVector2D(halfSize, halfSize), halfSize, node->depth - 1, node->Up);
 
 		if (point.X < node->offset.X + halfSize)
 		{
@@ -160,9 +175,9 @@ void InsertPoint(QuadTreeNode* node, const FVector2D& point)
 
 
 // Function to prebuild the entire quad tree
-QuadTreeNode* PrebuildQuadTree(const FVector2D& point, float size, int maxDepth)
+QuadTreeNode* PrebuildQuadTree(const FVector2D& point, float size, int maxDepth, FVector Up)
 {
-	QuadTreeNode* root = new QuadTreeNode(FVector2D(0, 0), size, maxDepth);
+	QuadTreeNode* root = new QuadTreeNode(FVector2D(0, 0), size, maxDepth, Up);
 	InsertPoint(root, point);
 	return root;
 }
@@ -205,15 +220,7 @@ void DrawBox(const FVector& Start, const FVector& End, const Lambda& DrawLineFun
 	DrawLineFunc(FVector(End.X, Start.Y, Start.Z), FVector(End.X, Start.Y, End.Z));
 }
 
-enum class CellType: uint8
-{
-	// A cell that just holds other cells
-	Holding,
-	// One cell that has no other children so the mesh is visible
-	Final,
-	// The lod zero cell
-	Player,
-};
+
 
 // Called every frame
 void APlanetLodManager::Tick(float DeltaTime)
@@ -306,9 +313,9 @@ void APlanetLodManager::Tick(float DeltaTime)
 
 		GEngine->AddOnScreenDebugMessage(1, 1, FColor::White, FString::Printf(TEXT("Plane %s"), *Out.ToString()));
 
-		float depth = 12;
+		float depth = 3;
 		
-		auto Node = PrebuildQuadTree(Out, 1.0, (int)depth);
+		auto Node = PrebuildQuadTree(Out, 1.0, (int)depth, Direction);
 		auto Elements = FlattenQuadTree(Node);
 		GEngine->AddOnScreenDebugMessage(2, 1, FColor::White, FString::Printf(TEXT("TreeSize %i"), Elements.Num()));
 
@@ -337,7 +344,10 @@ void APlanetLodManager::Tick(float DeltaTime)
 					DrawDebugLine(GetWorld(), St, Ed, typeCell == CellType::Final? FColor::Green : FColor::Red, false, 1.f);
 			});
 
-			CurrentWorkingSet.Add(XNode->getKey());
+			if (XNode->nodeType == CellType::Player || XNode->nodeType == CellType::Final)
+			{
+				CurrentWorkingSet.Add(XNode->getKey());	
+			}
 		}
 
 		TSet<NodeKey> ToCreate;
@@ -373,12 +383,37 @@ void APlanetLodManager::Tick(float DeltaTime)
 
 		for (auto Elem : ToCreate)
 		{
-				MeshCache.Add(Elem, true);
+		
+			FName Name(FString::Printf(TEXT("MESH_INSTANCE=%i-%s"), Elem.Depth, *Elem.Offset.ToString()));
+			auto NewMesh = NewObject<UTerrianMesh>(this, UTerrianMesh::StaticClass(), Name);
+			NewMesh->RegisterComponent();
+			AddInstanceComponent(NewMesh);
+			NewMesh->AttachToComponent(SceneRoot, FAttachmentTransformRules::KeepRelativeTransform);
+			NewMesh->SetComponentTickEnabled(true);
+			NewMesh->SampleFocus = Elem.Size;
+			NewMesh->SampleStart = Elem.Offset;
+			NewMesh->ShapeSettings = ShapeSettings;
+			NewMesh->GridSize = 20;
+			NewMesh->LocalUp = Direction;
+			NewMesh->Material = Material;
+			static FName Reason("Spawn");
+			NewMesh->RebuildMesh(Reason);
+			NewMesh->bDirty = true;
+			NewMesh->Activate();
+			
+			
+			MeshCache.Add(Elem, NewMesh);
 		}
-
+		
 		for (auto Elem : ToDelete)
 		{
+			auto ToRemove = MeshCache[Elem];
 			MeshCache.Remove(Elem);
+			if (IsValid(ToRemove))
+			{
+				RemoveInstanceComponent(ToRemove);
+				ToRemove->DestroyComponent();
+			}
 		}
 		
 		//

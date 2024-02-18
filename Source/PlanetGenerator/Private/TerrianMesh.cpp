@@ -146,13 +146,8 @@ void UTerrianMesh::RebuildMesh(FName Reason)
 	static FName A("PostInitProperties");
 	static FName B("ApplyComponentInstanceData");
 	static FName C("OnExternalPropChanged");
+	static FName D("Spawn");
 
-	if (!(Reason == A || Reason == B || Reason == C))
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Skip rebuild"));
-		return;		
-	}
-	
 	double Start = FPlatformTime::Seconds();
 
 	UpdateAxis();
@@ -164,7 +159,9 @@ void UTerrianMesh::RebuildMesh(FName Reason)
 	TArray<FVector> Normals;
 	TArray<FVector2D> UV0;
 
-
+	if (!noiseFilter) {
+		noiseFilter = new NoiseFilter();
+	}
 	
 	
 	{

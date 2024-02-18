@@ -8,23 +8,39 @@
 #include "GameFramework/Actor.h"
 #include "PlanetLodManager.generated.h"
 
+enum class CellType: uint8
+{
+	// A cell that just holds other cells
+	Holding,
+	// One cell that has no other children so the mesh is visible
+	Final,
+	// The lod zero cell
+	Player,
+};
+
 
 struct NodeKey
 {
+	FVector Up;
 	FVector2D Offset;
 	int Depth;
+	float Size;
+	CellType nodeType;
 
 	// Comparison operators for NodeKey
 	friend bool operator==(const NodeKey& A, const NodeKey& B)
 	{
-		return A.Offset == B.Offset && A.Depth == B.Depth;
+		return A.Offset == B.Offset && A.Depth == B.Depth && A.Size == B.Size && A.Up == B.Up && A.nodeType == B.nodeType;
 	}
 
 	friend uint32 GetTypeHash(const NodeKey& Key)
 	{
 		// Use a combination of hash values for individual components
 		uint32 Hash = FCrc::MemCrc_DEPRECATED(&Key.Offset, sizeof(FVector2D));
+		Hash = FCrc::MemCrc_DEPRECATED(&Key.Up, sizeof(FVector2D));
 		Hash = FCrc::MemCrc_DEPRECATED(&Key.Depth, sizeof(int), Hash);
+		Hash = FCrc::MemCrc_DEPRECATED(&Key.Size, sizeof(float), Hash);
+		Hash = FCrc::MemCrc_DEPRECATED(&Key.nodeType, sizeof(CellType), Hash);
 		return Hash;
 	}
 };
@@ -40,7 +56,23 @@ public:
 	// Sets default values for this actor's properties
 	APlanetLodManager();
 
-	TMap<NodeKey, bool> MeshCache;
+	TMap<NodeKey, UTerrianMesh*> MeshCache;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	USceneComponent* SceneRoot;
+	
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	TObjectPtr<UMaterialInterface> Material;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere);
+	UShapeSettings* ShapeSettings;
+
+	UFUNCTION(BlueprintSetter)
+	void SetShapeSettings(UShapeSettings* NewShapeSettings);
+
+	UFUNCTION(BlueprintSetter)
+	void BPSetMaterial(UMaterialInterface* NewLandscapeMaterial);
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
