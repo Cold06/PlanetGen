@@ -128,7 +128,7 @@ void ULODDebugger::PostDuplicate(EDuplicateMode::Type DuplicateMode)
 	Super::PostDuplicate(DuplicateMode == EDuplicateMode::Type::Normal);
 	RebindDelegates();
 
-	UE_LOG(LogTemp, Warning, TEXT("Duplicate %i"), GridSize);
+	UE_LOG(LogTemp, Warning, TEXT("DupliSADASDASDAScate %i"), GridSize);
 	
 	static FName Reason("PostDuplicate");
 	RebuildMesh(Reason);

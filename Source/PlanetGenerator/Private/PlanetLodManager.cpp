@@ -2,7 +2,7 @@
 
 
 #include "PlanetLodManager.h"
-
+#include <imgui.h>
 #include <functional>
 
 #include "MyBlueprintFunctionLibrary.h"
@@ -13,7 +13,7 @@ APlanetLodManager::APlanetLodManager()
 {
 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
-	SceneRoot  = CreateDefaultSubobject<USceneComponent>(TEXT("ROOT")); 
+	SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("ROOT"));
 	RootComponent = SceneRoot;
 }
 
@@ -25,6 +25,11 @@ void APlanetLodManager::SetShapeSettings(UShapeSettings* NewShapeSettings)
 void APlanetLodManager::BPSetMaterial(UMaterialInterface* NewLandscapeMaterial)
 {
 	Material = NewLandscapeMaterial;
+}
+
+void APlanetLodManager::PrintQuadTree()
+{
+	bShouldPrint = true;
 }
 
 // Called when the game starts or when spawned
@@ -95,7 +100,6 @@ static TArray<FVector> GLOBAL_Directions = {
 };
 
 
-
 struct QuadTreeNode
 {
 	CellType nodeType;
@@ -117,9 +121,9 @@ struct QuadTreeNode
 		key.Up = Up;
 		return key;
 	}
-	
+
 	QuadTreeNode(FVector2D _offset, float _size, int _depth, FVector _Up) : offset(_offset), size(_size), depth(_depth),
-	                                                           bHasPoint(false), Up(_Up)
+	                                                                        bHasPoint(false), Up(_Up)
 	{
 		nodeType = CellType::Final;
 		point = FVector2D::ZeroVector;
@@ -136,17 +140,22 @@ void InsertPoint(QuadTreeNode* node, const FVector2D& point)
 		node->nodeType = CellType::Player;
 		node->point = point;
 		node->bHasPoint = true;
-	} else {
+	}
+	else
+	{
 		float halfSize = node->size * 0.5f;
 		node->nodeType = CellType::Holding;
 		// LEFT TOP 
 		node->children[0] = new QuadTreeNode(node->offset + FVector2D(0, 0), halfSize, node->depth - 1, node->Up);
 		// RIGHT TOP 
-		node->children[1] = new QuadTreeNode(node->offset + FVector2D(halfSize, 0), halfSize, node->depth - 1, node->Up);
+		node->children[1] = new QuadTreeNode(node->offset + FVector2D(halfSize, 0), halfSize, node->depth - 1,
+		                                     node->Up);
 		// LEFT BOTTOM 
-		node->children[2] = new QuadTreeNode(node->offset + FVector2D(0, halfSize), halfSize, node->depth - 1, node->Up);
+		node->children[2] = new QuadTreeNode(node->offset + FVector2D(0, halfSize), halfSize, node->depth - 1,
+		                                     node->Up);
 		// RIGHT BOTTOM
-		node->children[3] = new QuadTreeNode(node->offset + FVector2D(halfSize, halfSize), halfSize, node->depth - 1, node->Up);
+		node->children[3] = new QuadTreeNode(node->offset + FVector2D(halfSize, halfSize), halfSize, node->depth - 1,
+		                                     node->Up);
 
 		if (point.X < node->offset.X + halfSize)
 		{
@@ -155,20 +164,26 @@ void InsertPoint(QuadTreeNode* node, const FVector2D& point)
 			{
 				// TOP
 				InsertPoint(node->children[0], point);
-			} else {
+			}
+			else
+			{
 				// BOTTOM
 				InsertPoint(node->children[2], point);
-			}	
-		} else {
+			}
+		}
+		else
+		{
 			// RIGhT
 			if (point.Y < node->offset.Y + halfSize)
 			{
 				// TOP
 				InsertPoint(node->children[1], point);
-			} else {
+			}
+			else
+			{
 				// BOTTOM
 				InsertPoint(node->children[3], point);
-			}	
+			}
 		}
 	}
 }
@@ -200,7 +215,7 @@ TArray<QuadTreeNode*> FlattenQuadTree(QuadTreeNode* Node)
 }
 
 
-template<typename Lambda>
+template <typename Lambda>
 void DrawBox(const FVector& Start, const FVector& End, const Lambda& DrawLineFunc)
 {
 	// Draw lines between each pair of corresponding components of start and end vectors
@@ -219,7 +234,6 @@ void DrawBox(const FVector& Start, const FVector& End, const Lambda& DrawLineFun
 	DrawLineFunc(FVector(End.X, Start.Y, Start.Z), FVector(End.X, End.Y, Start.Z));
 	DrawLineFunc(FVector(End.X, Start.Y, Start.Z), FVector(End.X, Start.Y, End.Z));
 }
-
 
 
 // Called every frame
@@ -252,7 +266,6 @@ void APlanetLodManager::Tick(float DeltaTime)
 		FVector ToCube = UMyBlueprintFunctionLibrary::CubizePoint(UnitPoint);
 		FVector CubePos = (ToCube * SideLength) + ActorLocation;
 
-		
 
 		DrawDebugBox(GetWorld(), ClosesPoint, FVector(3), FColor::Green, false, 1.f);
 		DrawDebugBox(GetWorld(), CubePos, FVector(3), FColor::Cyan, false, 1.f);
@@ -272,7 +285,8 @@ void APlanetLodManager::Tick(float DeltaTime)
 			if (ToCube.X == 1.f)
 			{
 				Out.Y *= -1.f;
-			} else
+			}
+			else
 			{
 				Out *= -1.f;
 			}
@@ -286,7 +300,8 @@ void APlanetLodManager::Tick(float DeltaTime)
 			if (ToCube.Y == 1.f)
 			{
 				Out.Y *= -1.f;
-			} else
+			}
+			else
 			{
 				Out *= -1.f;
 			}
@@ -300,7 +315,8 @@ void APlanetLodManager::Tick(float DeltaTime)
 			if (ToCube.Z == 1.f)
 			{
 				Out.Y *= -1.f;
-			} else
+			}
+			else
 			{
 				Out *= -1.f;
 			}
@@ -313,8 +329,8 @@ void APlanetLodManager::Tick(float DeltaTime)
 
 		GEngine->AddOnScreenDebugMessage(1, 1, FColor::White, FString::Printf(TEXT("Plane %s"), *Out.ToString()));
 
-		float depth = 3;
-		
+		float depth = 8;
+
 		auto Node = PrebuildQuadTree(Out, 1.0, (int)depth, Direction);
 		auto Elements = FlattenQuadTree(Node);
 		GEngine->AddOnScreenDebugMessage(2, 1, FColor::White, FString::Printf(TEXT("TreeSize %i"), Elements.Num()));
@@ -322,13 +338,14 @@ void APlanetLodManager::Tick(float DeltaTime)
 		FVector AxisA = FVector(Direction.Y, Direction.Z, Direction.X);
 		FVector AxisB = Direction.Cross(AxisA);
 
-		TSet<NodeKey> CurrentWorkingSet;
-		
+		TArray<NodeKey> CurrentWorkingSet;
+
 		for (auto XNode : Elements)
 		{
-			
-			const FVector Start = Direction + (XNode->offset.X - 0.5) * 2.0 * AxisA + (XNode->offset.Y - 0.5) * 2.0 * AxisB;
-			const FVector End = Direction + (XNode->offset.X + XNode->size - 0.5) * 2.0 * AxisA + (XNode->offset.Y + XNode->size - 0.5) * 2.0 * AxisB;
+			const FVector Start = Direction + (XNode->offset.X - 0.5) * 2.0 * AxisA + (XNode->offset.Y - 0.5) * 2.0 *
+				AxisB;
+			const FVector End = Direction + (XNode->offset.X + XNode->size - 0.5) * 2.0 * AxisA + (XNode->offset.Y +
+				XNode->size - 0.5) * 2.0 * AxisB;
 
 			//DrawDebugBox(GetWorld(), ActorLocation + Start * SideLength, Direction + (((Quad - Direction) * SideLength * XNode->size *  (XNode->bHasPoint ? 0.8 : 0.95))), XNode->bHasPoint ? FColor::Green : FColor::White, false);
 
@@ -336,33 +353,67 @@ void APlanetLodManager::Tick(float DeltaTime)
 
 			auto S = ActorLocation + Start * SideLength;
 			auto E = ActorLocation + End * SideLength;
-			
-			DrawBox(S, E, [this, XNode](FVector St, FVector Ed){
-				CellType typeCell = XNode->bHasPoint ? CellType::Player : XNode->children[0] == nullptr ? CellType::Final : CellType::Holding;
-				
+
+			DrawBox(S, E, [this, XNode](FVector St, FVector Ed)
+			{
+				CellType typeCell = XNode->bHasPoint
+					                    ? CellType::Player
+					                    : XNode->children[0] == nullptr
+					                    ? CellType::Final
+					                    : CellType::Holding;
+
 				if (typeCell != CellType::Holding)
-					DrawDebugLine(GetWorld(), St, Ed, typeCell == CellType::Final? FColor::Green : FColor::Red, false, 1.f);
+					DrawDebugLine(GetWorld(), St, Ed, typeCell == CellType::Final ? FColor::Green : FColor::Red, false,
+					              1.f);
 			});
 
-			if (XNode->nodeType == CellType::Player || XNode->nodeType == CellType::Final)
+			if (XNode->nodeType != CellType::Holding)
 			{
-				CurrentWorkingSet.Add(XNode->getKey());	
+				CurrentWorkingSet.Add(XNode->getKey());
 			}
 		}
+
+		Elements.StableSort([](QuadTreeNode& a, QuadTreeNode& b)
+		{
+			return a.depth < b.depth;
+		});
+
+		CurrentWorkingSet.StableSort([](NodeKey a, NodeKey b)
+		{
+			return a.Depth < b.Depth;
+		});
+		
+
+
 
 		TSet<NodeKey> ToCreate;
 		TSet<NodeKey> ToDelete;
 		int32 ToKeep = 0;
 
+		for (auto It = MeshCache.CreateIterator(); It; ++It)
+		{
+			if (It.Value() == nullptr)
+			{
+				It.RemoveCurrent();
+			}
+		}
+		
 		for (auto Existing : MeshCache)
 		{
 			auto Key = Existing.Get<0>();
 			auto Value = Existing.Get<1>();
 
+			if (!IsValid(Value))
+			{
+				GEngine->AddOnScreenDebugMessage(6, 1, FColor::Red, FString::Printf(TEXT("Found invallid node after filtering")));
+			}
+			
+			
 			if (CurrentWorkingSet.Contains(Key))
 			{
 				ToKeep += 1.0;
-			} else
+			}
+			else
 			{
 				ToDelete.Add(Key);
 			}
@@ -377,13 +428,25 @@ void APlanetLodManager::Tick(float DeltaTime)
 		}
 
 		GEngine->AddOnScreenDebugMessage(9, 1, FColor::White, FString::Printf(TEXT("LOD Tick Stats")));
-		GEngine->AddOnScreenDebugMessage(8, 1, FColor::White, FString::Printf(TEXT(" . . . To Create %i"), ToCreate.Num()));
-		GEngine->AddOnScreenDebugMessage(7, 1, FColor::White, FString::Printf(TEXT(" . . . To Delete %i"), ToDelete.Num()));
+		GEngine->AddOnScreenDebugMessage(8, 1, FColor::White,
+		                                 FString::Printf(TEXT(" . . . To Create %i"), ToCreate.Num()));
+		GEngine->AddOnScreenDebugMessage(7, 1, FColor::White,
+		                                 FString::Printf(TEXT(" . . . To Delete %i"), ToDelete.Num()));
 		GEngine->AddOnScreenDebugMessage(6, 1, FColor::White, FString::Printf(TEXT(" . . . To Keep %i"), ToKeep));
 
+		for (auto Elem : ToDelete)
+		{
+			auto ToRemove = MeshCache[Elem];
+			MeshCache.Remove(Elem);
+			if (IsValid(ToRemove))
+			{
+				RemoveInstanceComponent(ToRemove);
+				ToRemove->DestroyComponent();
+			}
+		}
+		
 		for (auto Elem : ToCreate)
 		{
-		
 			FName Name(FString::Printf(TEXT("MESH_INSTANCE=%i-%s"), Elem.Depth, *Elem.Offset.ToString()));
 			auto NewMesh = NewObject<UTerrianMesh>(this, UTerrianMesh::StaticClass(), Name);
 			NewMesh->RegisterComponent();
@@ -400,77 +463,123 @@ void APlanetLodManager::Tick(float DeltaTime)
 			NewMesh->RebuildMesh(Reason);
 			NewMesh->bDirty = true;
 			NewMesh->Activate();
-			
-			
-			MeshCache.Add(Elem, NewMesh);
-		}
-		
-		for (auto Elem : ToDelete)
-		{
-			auto ToRemove = MeshCache[Elem];
-			MeshCache.Remove(Elem);
-			if (IsValid(ToRemove))
+
+			if (!IsValid(NewMesh))
 			{
-				RemoveInstanceComponent(ToRemove);
-				ToRemove->DestroyComponent();
+				GEngine->AddOnScreenDebugMessage(6, 1, FColor::Red, FString::Printf(TEXT("Created invalid node")));
+			} else
+			{
+				MeshCache.Add(Elem, NewMesh);	
+			}
+			
+		}
+
+
+
+		if (ImGui::Begin("LodManager", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			char buf[255];
+			ImGui::NewLine();
+			sprintf(buf, "Raw Nodes");
+			ImGui::TextUnformatted(buf);
+
+			for (auto Element : Elements)
+			{
+				sprintf(buf, "NODE %i X: %f, Y: %f, Type: ", Element->depth, Element->offset.X, Element->offset.X);
+
+				ImGui::TextUnformatted(buf);
+
+				ImGui::SameLine();
+				if (Element->nodeType == CellType::Final)
+				{
+					sprintf(buf, "FINAL");
+					ImGui::TextColored(ImVec4(255, 255, 0, 255), buf);
+				}
+
+				if (Element->nodeType == CellType::Holding)
+				{
+					sprintf(buf, "HOLDING");
+					ImGui::TextColored(ImVec4(255, 0, 0, 255), buf);
+				}
+
+				if (Element->nodeType == CellType::Player)
+				{
+					sprintf(buf, "PLAYER");
+					ImGui::TextColored(ImVec4(0, 255, 0, 255), buf);
+				}
+			}
+
+			ImGui::NewLine();
+			sprintf(buf, "Current Working Set");
+			ImGui::TextUnformatted(buf);
+
+			for (auto Element : CurrentWorkingSet)
+			{
+				sprintf(buf, "Key %i X: %f, Y: %f, Type: ", Element.Depth, Element.Offset.X, Element.Offset.X);
+
+				ImGui::TextUnformatted(buf);
+
+				ImGui::SameLine();
+				if (Element.nodeType == CellType::Final)
+				{
+					sprintf(buf, "FINAL");
+					ImGui::TextColored(ImVec4(255, 255, 0, 255), buf);
+				}
+
+				if (Element.nodeType == CellType::Holding)
+				{
+					sprintf(buf, "HOLDING");
+					ImGui::TextColored(ImVec4(255, 0, 0, 255), buf);
+				}
+
+				if (Element.nodeType == CellType::Player)
+				{
+					sprintf(buf, "PLAYER");
+					ImGui::TextColored(ImVec4(0, 255, 0, 255), buf);
+				}
+			}
+			
+			ImGui::NewLine();
+			sprintf(buf, "Mesh Cache State");
+			ImGui::TextUnformatted(buf);
+
+			for (auto Mesh : MeshCache)
+			{
+				auto Element = Mesh.Get<0>();
+
+				auto IsSet = IsValid(Mesh.Get<1>());
+
+				sprintf(buf, "Key %i X: %f, Y: %f, Type: ", Element.Depth, Element.Offset.X, Element.Offset.X);
+
+				ImGui::TextUnformatted(buf);
+
+				ImGui::SameLine();
+				if (Element.nodeType == CellType::Final)
+				{
+					sprintf(buf, "FINAL");
+					ImGui::TextColored(ImVec4(255, 255, 0, 255), buf);
+				}
+				if (Element.nodeType == CellType::Player)
+				{
+					sprintf(buf, "PLAYER");
+					ImGui::TextColored(ImVec4(0, 255, 0, 255), buf);
+				}
+
+				ImGui::SameLine();
+				if (IsSet)
+				{
+					sprintf(buf, "VALID");
+					ImGui::TextColored(ImVec4(0, 255, 0, 255), buf);
+				}else
+				{
+					sprintf(buf, "INVALID");
+					ImGui::TextColored(ImVec4(255, 0, 0, 255), buf);
+				}
+				
+				
+				
 			}
 		}
-		
-		//
-		// if (Manager)
-		// {
-		// 	FVector CubePos = GetActorLocation();
-		// 	FVector CameraLocation = Manager->GetCameraLocation();
-		// 	FVector Distance = GetActorLocation() - CameraLocation;
-		// 	float Mag = Distance.Length();
-		// 	UE_LOG(LogTemp, Warning, TEXT("Distance: %s, total %f"), *Distance.ToString(), Mag);
-		//
-		// 	TArray<std::tuple<FVector, QuadTreeNode>> Nodes;
-		// 	
-		// 	static TArray<FVector> Directions = {
-		// 		{0.f, 0.f, +1.f},
-		// 		{0.f, 0.f, -1.f},
-		// 		{0.f, +1.f, 0.f},
-		// 		{0.f, -1.f, 0.f},
-		// 		{+1.f, 0.f, 0.f},
-		// 		{-1.f, 0.f, 0.f},
-		// 	};
-		//
-		// 	const auto Major = GetMajorAxis(Distance);
-		// 	
-		// 	for (auto Direction : Directions)
-		// 	{
-		//
-		// 		FVector AxisA = FVector(Direction.Y, Direction.Z, Direction.X);
-		// 		FVector AxisB = Direction.Cross(AxisA);
-		// 		
-		// 		auto GetPointOnUnitCube = [Direction, AxisA, AxisB](float x, float y)
-		// 		{
-		// 			float Focus = 1.f;
-		// 			FVector2D SampleStart = FVector2D::ZeroVector;
-		// 			const FVector2D Percent = SampleStart + (FVector2D(x, y) * Focus) / 1;
-		// 			const FVector PointOnUnitCube = Direction + (Percent.X - 0.5) * 2.0 * AxisA + (Percent.Y - 0.5) * 2.0 * AxisB;
-		// 			return PointOnUnitCube;
-		// 		};
-		// 		
-		// 		if (Direction == Major)
-		// 		{
-		//
-		// 			float CubeLength = CubeSideLengthInsideSphere(Radius);
-		// 			
-		// 			FVector CLosest = UMyBlueprintFunctionLibrary::ClosestPointOnCube(CubePos, CubeLength, CameraLocation);
-		// 			FVector2D PointOnFace = GetPointGivenFace(Direction, CLosest);
-		//
-		// 			auto Tree = buildQuadTree(PointOnFace / CubeLength, 5);
-		//
-		//
-		// 			
-		// 		} else
-		// 		{
-		// 			// Direction;
-		// 			// auto X = new QuadTreeNode(FVector2D(0.0, 0.0), 1, 0);
-		// 		}
-		// 	}
-		// }
+		ImGui::End();
 	}
 }

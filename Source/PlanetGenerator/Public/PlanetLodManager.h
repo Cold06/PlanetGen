@@ -73,6 +73,11 @@ public:
 	UFUNCTION(BlueprintSetter)
 	void BPSetMaterial(UMaterialInterface* NewLandscapeMaterial);
 
+	UFUNCTION(BlueprintCallable)
+	void PrintQuadTree();
+
+	bool bShouldPrint = false;
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
