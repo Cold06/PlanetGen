@@ -8,6 +8,15 @@
 #include "MyBlueprintFunctionLibrary.h"
 #include "Camera/CameraComponent.h"
 
+static TArray<FVector> GLOBAL_Directions = {
+	{0.f, 0.f, +1.f},
+	{0.f, 0.f, -1.f},
+	{0.f, +1.f, 0.f},
+	{0.f, -1.f, 0.f},
+	{+1.f, 0.f, 0.f},
+	{-1.f, 0.f, 0.f},
+};
+
 // Sets default values
 APlanetLodManager::APlanetLodManager()
 {
@@ -36,6 +45,26 @@ void APlanetLodManager::PrintQuadTree()
 void APlanetLodManager::BeginPlay()
 {
 	Super::BeginPlay();
+	for (auto V : GLOBAL_Directions)
+	{
+		FName Name(FString::Printf(TEXT("LOD ZERO %i,%i,%i"), (int32)V.X, (int32)V.Y, (int32)V.Z));
+		auto NewMesh = NewObject<UTerrianMesh>(this, UTerrianMesh::StaticClass(), Name);
+		NewMesh->RegisterComponent();
+		AddInstanceComponent(NewMesh);
+		NewMesh->AttachToComponent(SceneRoot, FAttachmentTransformRules::KeepRelativeTransform);
+		NewMesh->SetComponentTickEnabled(true);
+		NewMesh->SampleFocus = 1.f;
+		NewMesh->SampleStart = FVector2D(0.f);
+		NewMesh->ShapeSettings = ShapeSettings;
+		NewMesh->GridSize = 20;
+		NewMesh->LocalUp = V;
+		NewMesh->Material = Material;
+		static FName Reason("Spawn");
+		NewMesh->RebuildMesh(Reason);
+		NewMesh->bDirty = true;
+		NewMesh->Activate();
+		LodZero.Add(V, NewMesh);
+	}
 }
 
 FVector GetMajorAxis(FVector A)
@@ -89,15 +118,6 @@ float CubeSideLengthInsideSphere(float SphereRadius)
 	float SideLength = FMath::Sqrt(3.0f) / 3.0f * (2.0f * SphereRadius);
 	return SideLength;
 }
-
-static TArray<FVector> GLOBAL_Directions = {
-	{0.f, 0.f, +1.f},
-	{0.f, 0.f, -1.f},
-	{0.f, +1.f, 0.f},
-	{0.f, -1.f, 0.f},
-	{+1.f, 0.f, 0.f},
-	{-1.f, 0.f, 0.f},
-};
 
 
 struct QuadTreeNode
@@ -235,13 +255,20 @@ void DrawBox(const FVector& Start, const FVector& End, const Lambda& DrawLineFun
 	DrawLineFunc(FVector(End.X, Start.Y, Start.Z), FVector(End.X, Start.Y, End.Z));
 }
 
+// 4, 12
+float GetLodLevelX(float MaxLodLevel, float MaxDistance, float CurrentDistance)
+{
+	return FMath::Max(
+		1.f, MaxLodLevel - FMath::RoundHalfToZero(
+			(FMath::Min(CurrentDistance, MaxDistance) / MaxDistance) * MaxLodLevel + 1));
+}
 
 // Called every frame
 void APlanetLodManager::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	float Radius = 4000;
+	float Radius = ShapeSettings->Radius;
 
 	FVector ActorLocation = GetActorLocation();
 
@@ -263,12 +290,13 @@ void APlanetLodManager::Tick(float DeltaTime)
 		FVector ClosesPoint = UMyBlueprintFunctionLibrary::ClosestPointOnSphere(ActorLocation, Radius, CameraLocation);
 
 		FVector UnitPoint = UMyBlueprintFunctionLibrary::ClosestPointOnSphereUnit(ActorLocation, CameraLocation);
-		FVector ToCube = UMyBlueprintFunctionLibrary::CubizePoint(UnitPoint);
+		FVector ToCube = UMyBlueprintFunctionLibrary::CubizePoint2(UnitPoint);
 		FVector CubePos = (ToCube * SideLength) + ActorLocation;
-
 
 		DrawDebugBox(GetWorld(), ClosesPoint, FVector(3), FColor::Green, false, 1.f);
 		DrawDebugBox(GetWorld(), CubePos, FVector(3), FColor::Cyan, false, 1.f);
+
+		FVector DistanceToSphere = CameraLocation - ClosesPoint;
 
 		FVector2D Out;
 
@@ -329,7 +357,9 @@ void APlanetLodManager::Tick(float DeltaTime)
 
 		GEngine->AddOnScreenDebugMessage(1, 1, FColor::White, FString::Printf(TEXT("Plane %s"), *Out.ToString()));
 
-		float depth = 8;
+		float MaxLod = ShapeSettings->MaxLOD;
+
+		float depth = GetLodLevelX(MaxLod, ShapeSettings->Radius / 2.f, DistanceToSphere.Length());
 
 		auto Node = PrebuildQuadTree(Out, 1.0, (int)depth, Direction);
 		auto Elements = FlattenQuadTree(Node);
@@ -346,10 +376,6 @@ void APlanetLodManager::Tick(float DeltaTime)
 				AxisB;
 			const FVector End = Direction + (XNode->offset.X + XNode->size - 0.5) * 2.0 * AxisA + (XNode->offset.Y +
 				XNode->size - 0.5) * 2.0 * AxisB;
-
-			//DrawDebugBox(GetWorld(), ActorLocation + Start * SideLength, Direction + (((Quad - Direction) * SideLength * XNode->size *  (XNode->bHasPoint ? 0.8 : 0.95))), XNode->bHasPoint ? FColor::Green : FColor::White, false);
-
-			// DrawDebugBox(GetWorld(), ActorLocation + Start * SideLength, FVector(3), XNode->bHasPoint ? FColor::Green : FColor::White, false);
 
 			auto S = ActorLocation + Start * SideLength;
 			auto E = ActorLocation + End * SideLength;
@@ -382,22 +408,11 @@ void APlanetLodManager::Tick(float DeltaTime)
 		{
 			return a.Depth < b.Depth;
 		});
-		
-
-
 
 		TSet<NodeKey> ToCreate;
 		TSet<NodeKey> ToDelete;
 		int32 ToKeep = 0;
 
-		for (auto It = MeshCache.CreateIterator(); It; ++It)
-		{
-			if (It.Value() == nullptr)
-			{
-				It.RemoveCurrent();
-			}
-		}
-		
 		for (auto Existing : MeshCache)
 		{
 			auto Key = Existing.Get<0>();
@@ -405,10 +420,10 @@ void APlanetLodManager::Tick(float DeltaTime)
 
 			if (!IsValid(Value))
 			{
-				GEngine->AddOnScreenDebugMessage(6, 1, FColor::Red, FString::Printf(TEXT("Found invallid node after filtering")));
+				GEngine->AddOnScreenDebugMessage(6, 1, FColor::Red,
+				                                 FString::Printf(TEXT("Found invallid node after filtering")));
 			}
-			
-			
+
 			if (CurrentWorkingSet.Contains(Key))
 			{
 				ToKeep += 1.0;
@@ -419,6 +434,26 @@ void APlanetLodManager::Tick(float DeltaTime)
 			}
 		}
 
+		GEngine->AddOnScreenDebugMessage(9, 1, FColor::White, FString::Printf(TEXT("LOD Tick Stats")));
+		GEngine->AddOnScreenDebugMessage(8, 1, FColor::White,
+		                                 FString::Printf(TEXT(" . . . To Create %i"), ToCreate.Num()));
+		GEngine->AddOnScreenDebugMessage(7, 1, FColor::White,
+		                                 FString::Printf(TEXT(" . . . To Delete %i"), ToDelete.Num()));
+		GEngine->AddOnScreenDebugMessage(6, 1, FColor::White, FString::Printf(TEXT(" . . . To Keep %i"), ToKeep));
+
+		for (auto Zero : LodZero)
+		{
+			if (Zero.Get<0>() != Direction)
+			{
+				Zero.Get<1>()->SetHiddenInGame(false);
+			}
+			else
+			{
+				Zero.Get<1>()->SetHiddenInGame(true);
+			}
+		}
+
+
 		for (auto MaybeNewKey : CurrentWorkingSet)
 		{
 			if (!MeshCache.Contains((MaybeNewKey)))
@@ -426,13 +461,6 @@ void APlanetLodManager::Tick(float DeltaTime)
 				ToCreate.Add(MaybeNewKey);
 			}
 		}
-
-		GEngine->AddOnScreenDebugMessage(9, 1, FColor::White, FString::Printf(TEXT("LOD Tick Stats")));
-		GEngine->AddOnScreenDebugMessage(8, 1, FColor::White,
-		                                 FString::Printf(TEXT(" . . . To Create %i"), ToCreate.Num()));
-		GEngine->AddOnScreenDebugMessage(7, 1, FColor::White,
-		                                 FString::Printf(TEXT(" . . . To Delete %i"), ToDelete.Num()));
-		GEngine->AddOnScreenDebugMessage(6, 1, FColor::White, FString::Printf(TEXT(" . . . To Keep %i"), ToKeep));
 
 		for (auto Elem : ToDelete)
 		{
@@ -444,7 +472,7 @@ void APlanetLodManager::Tick(float DeltaTime)
 				ToRemove->DestroyComponent();
 			}
 		}
-		
+
 		for (auto Elem : ToCreate)
 		{
 			FName Name(FString::Printf(TEXT("MESH_INSTANCE=%i-%s"), Elem.Depth, *Elem.Offset.ToString()));
@@ -456,8 +484,8 @@ void APlanetLodManager::Tick(float DeltaTime)
 			NewMesh->SampleFocus = Elem.Size;
 			NewMesh->SampleStart = Elem.Offset;
 			NewMesh->ShapeSettings = ShapeSettings;
-			NewMesh->GridSize = 20;
-			NewMesh->LocalUp = Direction;
+			NewMesh->GridSize = (MaxLod - Elem.Depth) * ShapeSettings->GridSizeLodMultiplier;
+			NewMesh->LocalUp = Elem.Up;
 			NewMesh->Material = Material;
 			static FName Reason("Spawn");
 			NewMesh->RebuildMesh(Reason);
@@ -467,18 +495,25 @@ void APlanetLodManager::Tick(float DeltaTime)
 			if (!IsValid(NewMesh))
 			{
 				GEngine->AddOnScreenDebugMessage(6, 1, FColor::Red, FString::Printf(TEXT("Created invalid node")));
-			} else
-			{
-				MeshCache.Add(Elem, NewMesh);	
 			}
-			
+			else
+			{
+				MeshCache.Add(Elem, NewMesh);
+			}
 		}
 
+		char buf[255];
 
 
 		if (ImGui::Begin("LodManager", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 		{
-			char buf[255];
+			ImGui::NewLine();
+			sprintf(buf, "LOD Level %f", depth);
+			ImGui::TextUnformatted(buf);
+			ImGui::NewLine();
+			sprintf(buf, "Distance to surface %f", DistanceToSphere.Length());
+			ImGui::TextUnformatted(buf);
+
 			ImGui::NewLine();
 			sprintf(buf, "Raw Nodes");
 			ImGui::TextUnformatted(buf);
@@ -508,9 +543,11 @@ void APlanetLodManager::Tick(float DeltaTime)
 					ImGui::TextColored(ImVec4(0, 255, 0, 255), buf);
 				}
 			}
-
+		}
+		ImGui::End();
+		if (ImGui::Begin("Working Set"))
+		{
 			ImGui::NewLine();
-			sprintf(buf, "Current Working Set");
 			ImGui::TextUnformatted(buf);
 
 			for (auto Element : CurrentWorkingSet)
@@ -538,9 +575,11 @@ void APlanetLodManager::Tick(float DeltaTime)
 					ImGui::TextColored(ImVec4(0, 255, 0, 255), buf);
 				}
 			}
-			
-			ImGui::NewLine();
-			sprintf(buf, "Mesh Cache State");
+		}
+		ImGui::NewLine();
+		ImGui::End();
+		if (ImGui::Begin("Mesh Cache State"))
+		{
 			ImGui::TextUnformatted(buf);
 
 			for (auto Mesh : MeshCache)
@@ -549,7 +588,8 @@ void APlanetLodManager::Tick(float DeltaTime)
 
 				auto IsSet = IsValid(Mesh.Get<1>());
 
-				sprintf(buf, "Key %i X: %f, Y: %f, Type: ", Element.Depth, Element.Offset.X, Element.Offset.X);
+				sprintf(buf, "Key %i X: %f, Y: %f, UP: %i, %i, %i Type: ", Element.Depth, Element.Offset.X,
+				        Element.Offset.X, (int)Element.Up.X, (int)Element.Up.Y, (int)Element.Up.Z);
 
 				ImGui::TextUnformatted(buf);
 
@@ -570,14 +610,17 @@ void APlanetLodManager::Tick(float DeltaTime)
 				{
 					sprintf(buf, "VALID");
 					ImGui::TextColored(ImVec4(0, 255, 0, 255), buf);
-				}else
+				}
+				else
 				{
 					sprintf(buf, "INVALID");
 					ImGui::TextColored(ImVec4(255, 0, 0, 255), buf);
 				}
-				
-				
-				
+
+
+				ImGui::SameLine();
+				sprintf(buf, "Res: %i", Mesh.Get<1>()->GridSize);
+				ImGui::TextColored(ImVec4(120, 120, 255, 255), buf);
 			}
 		}
 		ImGui::End();

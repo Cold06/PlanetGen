@@ -133,7 +133,7 @@ public:
 	explicit FTerrianMeshInstanceData(const UTerrianMesh* SourceComponent)
 		: FSceneComponentInstanceData()
 	{
-		bUseForceVirtualApplyCheck = true;
+		bUseForceVirtualApplyCheck = false;
 	}
 	virtual ~FTerrianMeshInstanceData() = default;
 

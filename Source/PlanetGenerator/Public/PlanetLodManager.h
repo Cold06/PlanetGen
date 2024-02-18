@@ -27,6 +27,17 @@ struct NodeKey
 	float Size;
 	CellType nodeType;
 
+	static NodeKey LodZero(FVector Up, int Depth)
+	{
+		NodeKey NewKey;
+		NewKey.Up = Up;
+		NewKey.Offset = FVector2D(0.f);
+		NewKey.Depth = Depth;
+		NewKey.Size = 1.f;
+		NewKey.nodeType = CellType::Final;
+		return NewKey;
+	}
+	
 	// Comparison operators for NodeKey
 	friend bool operator==(const NodeKey& A, const NodeKey& B)
 	{
@@ -37,10 +48,10 @@ struct NodeKey
 	{
 		// Use a combination of hash values for individual components
 		uint32 Hash = FCrc::MemCrc_DEPRECATED(&Key.Offset, sizeof(FVector2D));
-		Hash = FCrc::MemCrc_DEPRECATED(&Key.Up, sizeof(FVector2D));
 		Hash = FCrc::MemCrc_DEPRECATED(&Key.Depth, sizeof(int), Hash);
 		Hash = FCrc::MemCrc_DEPRECATED(&Key.Size, sizeof(float), Hash);
 		Hash = FCrc::MemCrc_DEPRECATED(&Key.nodeType, sizeof(CellType), Hash);
+		Hash = FCrc::MemCrc_DEPRECATED(&Key.Up, sizeof(FVector), Hash);
 		return Hash;
 	}
 };
@@ -57,6 +68,8 @@ public:
 	APlanetLodManager();
 
 	TMap<NodeKey, UTerrianMesh*> MeshCache;
+
+	TMap<FVector, UTerrianMesh*> LodZero;
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	USceneComponent* SceneRoot;

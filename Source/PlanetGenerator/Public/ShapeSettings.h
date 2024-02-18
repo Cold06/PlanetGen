@@ -20,7 +20,13 @@ class PLANETGENERATOR_API UShapeSettings : public UDataAsset
 	UShapeSettings();
 public:
 		UPROPERTY(EditAnywhere)
-		float Radius = 0.f;
+		float Radius = 10000.f;
+
+		UPROPERTY(EditAnywhere)
+		float MaxLOD = 4.f;
+
+		UPROPERTY(EditAnywhere)
+		float GridSizeLodMultiplier = 4.f;
 
 		UPROPERTY(EditAnywhere)
 		TArray<UNoiseSettings*>  NoiseSettings;
