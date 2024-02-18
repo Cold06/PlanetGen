@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "FilterType.h"
 #include "Engine/DataAsset.h"
 #include "NoiseSettings.generated.h"
 
@@ -18,6 +19,12 @@ class PLANETGENERATOR_API UNoiseSettings : public UDataAsset
 	GENERATED_BODY()
 
 public:
+	UPROPERTY(EditAnywhere)
+	bool UseFirstLayerAsMask = false;
+
+	UPROPERTY(EditAnywhere)
+	bool Enabled = true;
+
 	UPROPERTY(EditAnywhere)
 	float Strength = 1.f;
 
@@ -35,9 +42,15 @@ public:
 
 	UPROPERTY(EditAnywhere)
 	float MinValue = 0.f;
-	
+
+	UPROPERTY(EditAnywhere)
+	float WeightMultiplier = 0.8f;
+
 	UPROPERTY(EditAnywhere)
 	FVector Center = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere)
+	FilterType NoiseType = FilterType::Simple;
 
 	FOnItemDataPropertyChangedSignature FOnItemDataPropertyChangedDelegate;
 

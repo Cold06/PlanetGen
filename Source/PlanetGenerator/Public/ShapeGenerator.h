@@ -18,6 +18,8 @@ public:
 	ShapeGenerator(UShapeSettings* Settings, NoiseFilter* noiseFilter);
 
 	FVector CalculatePointOnSphere(FVector PointOnSphere);
+
+	FVector NoNoise(FVector PointOnSphere);
 	
 	~ShapeGenerator();
 };

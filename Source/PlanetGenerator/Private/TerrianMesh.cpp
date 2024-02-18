@@ -11,7 +11,7 @@
 #include "ShapeGenerator.h"
 #include "SimplexNoiseBPLibrary.h"
 
-void CalculateNormals(const TArray<FVector>& Vertices, const TArray<int32>& Triangles, TArray<FVector>& Normals)
+void CalculateNormals3(const TArray<FVector>& Vertices, const TArray<int32>& Triangles, TArray<FVector>& Normals)
 {
 	// Initialize normals array with zero vectors
 	Normals.Init(FVector::ZeroVector, Vertices.Num());
@@ -48,6 +48,22 @@ UTerrianMesh::UTerrianMesh(const FObjectInitializer& ObjectInitializer)
 	PrimaryComponentTick.bCanEverTick = true;
 	bDirty = true;
 	UpdateAxis();
+}
+
+void UTerrianMesh::SetSampleStart(FVector2D NewSampleStart)
+{
+	SampleStart = NewSampleStart;
+	bDirty = true;
+	static FName Reason("SetSampleStart");
+	RebuildMesh(Reason);
+}
+
+void UTerrianMesh::SetSampleFocus(float NewSampleFocus)
+{
+	SampleFocus = NewSampleFocus;
+	bDirty = true;
+	static FName Reason("SetSampleFocus");
+	RebuildMesh(Reason);
 }
 
 void UTerrianMesh::SetGridSize(int32 newValue)
@@ -127,6 +143,16 @@ void UTerrianMesh::PostLoad()
 
 void UTerrianMesh::RebuildMesh(FName Reason)
 {
+	static FName A("PostInitProperties");
+	static FName B("ApplyComponentInstanceData");
+	static FName C("OnExternalPropChanged");
+
+	if (!(Reason == A || Reason == B || Reason == C))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Skip rebuild"));
+		return;		
+	}
+	
 	double Start = FPlatformTime::Seconds();
 
 	UpdateAxis();
@@ -137,6 +163,9 @@ void UTerrianMesh::RebuildMesh(FName Reason)
 	TArray<int32> Triangles;
 	TArray<FVector> Normals;
 	TArray<FVector2D> UV0;
+
+
+	
 	
 	{
 		auto Gen = new ShapeGenerator(ShapeSettings, noiseFilter);
@@ -152,14 +181,16 @@ void UTerrianMesh::RebuildMesh(FName Reason)
 		{
 			for (int32 x = 0; x < GridSize; x++)
 			{
-				int32 i = x + y * GridSize;
+				auto GetPointOnSphere = [this](int32 GridSize, int32 x, int32 y, FVector2D SampleStart, float SampleFocus)
+				{
+					const FVector2D Percent = SampleStart + (FVector2D(x, y) * SampleFocus) / (GridSize - 1);
+					const FVector PointOnUnitCube = LocalUp + (Percent.X - 0.5) * 2.0 * AxisA + (Percent.Y - 0.5) * 2.0 * AxisB;
+					return PointOnUnitCube.GetSafeNormal();
+				};
 
-				const FVector2D Percent = FVector2D(x, y) / (GridSize - 1);
-				const FVector PointOnUnitCube = LocalUp + (Percent.X - 0.5) * 2.0 * AxisA + (Percent.Y - 0.5) * 2.0 * AxisB;
-				
-				Vertices[i] = Gen->CalculatePointOnSphere(PointOnUnitCube.GetSafeNormal());
+				const int32 i = x + y * GridSize;
+				Vertices[i] = Gen->CalculatePointOnSphere(GetPointOnSphere(GridSize, x, y, SampleStart, SampleFocus));
 				UV0[i] = FVector2D::UnitVector;
-
 				if (x != GridSize - 1 && y != GridSize - 1)
 				{
 					Triangles[TriIndex+0] = i;
@@ -174,7 +205,7 @@ void UTerrianMesh::RebuildMesh(FName Reason)
 		}
 	}
 
-	CalculateNormals(Vertices, Triangles, Normals);
+	CalculateNormals3(Vertices, Triangles, Normals);
 	
 	CreateMeshSection_LinearColor(0, Vertices, Triangles, Normals, UV0, TArray<FLinearColor>(), TArray<FProcMeshTangent>(), false);
 	SetMaterial(0, Material);
@@ -194,7 +225,9 @@ TStructOnScope<FActorComponentInstanceData> UTerrianMesh::GetComponentInstanceDa
 {
 	TStructOnScope<FActorComponentInstanceData> InstanceData = MakeStructOnScope<FActorComponentInstanceData, FTerrianMeshInstanceData>(this);
 	FTerrianMeshInstanceData* MyComponentInstanceData = InstanceData.Cast<FTerrianMeshInstanceData>();
-	
+
+	MyComponentInstanceData->SampleStart = SampleStart;
+	MyComponentInstanceData->SampleFocus = SampleFocus;
 	MyComponentInstanceData->GridSize = GridSize;
 	MyComponentInstanceData->LocalUp = LocalUp;
 	MyComponentInstanceData->Material = Material;
@@ -210,6 +243,8 @@ void UTerrianMesh::ApplyComponentInstanceData(FTerrianMeshInstanceData* Componen
 	LocalUp = ComponentInstanceData->LocalUp;
 	Material = ComponentInstanceData->Material;
 	ShapeSettings = ComponentInstanceData->ShapeSettings;
+	SampleStart = ComponentInstanceData->SampleStart;
+	SampleFocus = ComponentInstanceData->SampleFocus;
 
 	SetWorldTransform(ComponentInstanceData->Transform);
 
@@ -238,25 +273,14 @@ void UTerrianMesh::UpdateAxis()
 
 void UTerrianMesh::RebindDelegates()
 {
-	
-	if (OnNoiseSettingsChangedDelegateHandle.IsValid())
-	{
-		OnNoiseSettingsChangedDelegateHandle.Reset();
-	}
-
 	if (OnShapeSettingsChangedDelegateHandle.IsValid())
 	{
-		OnNoiseSettingsChangedDelegateHandle.Reset();
+		OnShapeSettingsChangedDelegateHandle.Reset();
 	}
-
+	
 	if (ShapeSettings)
 	{
 		ShapeSettings->OnItemDataPropertyChangedDelegate.AddUObject(this, &UTerrianMesh::OnExternalPropChanged);
-		
-		if (ShapeSettings->NoiseSettings)
-		{
-			ShapeSettings->NoiseSettings->FOnItemDataPropertyChangedDelegate.AddUObject(this, &UTerrianMesh::OnExternalPropChanged);
-		}
 	}
 
 }
@@ -266,11 +290,6 @@ void UTerrianMesh::UnbindPropertyChangeDelegate()
 	if (ShapeSettings && OnShapeSettingsChangedDelegateHandle.IsValid())
 	{
 		ShapeSettings->OnItemDataPropertyChangedDelegate.Remove(OnShapeSettingsChangedDelegateHandle);
-
-		if (ShapeSettings->NoiseSettings && OnNoiseSettingsChangedDelegateHandle.IsValid())
-		{
-			ShapeSettings->NoiseSettings->FOnItemDataPropertyChangedDelegate.Remove(OnNoiseSettingsChangedDelegateHandle);
-		}
 	}
 }
 

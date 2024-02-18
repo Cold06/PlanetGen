@@ -35,15 +35,24 @@ public:
 	
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, BlueprintSetter=SetShapeSettings);
 	UShapeSettings* ShapeSettings;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, BlueprintSetter=SetSampleStart);
+	FVector2D SampleStart;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, BlueprintSetter=SetSampleFocus);
+	float SampleFocus = 1.f;
+
+	UFUNCTION(BlueprintSetter)
+	void SetSampleStart(FVector2D NewSampleStart);
+
+	UFUNCTION(BlueprintSetter)
+	void SetSampleFocus(float NewSampleFocus);
 	
 	UFUNCTION(BlueprintSetter)
 	void SetGridSize(int32 newValue);
 
 	UFUNCTION(BlueprintSetter)
 	void SetLocalUp(FVector newValue);
-
-	UFUNCTION(BlueprintSetter)
-	void SetWorldSpaceScalar(float newValue);
 
 	UFUNCTION(BlueprintSetter)
 	void BPSetMaterial(UMaterialInterface* NewLandscapeMaterial);
@@ -64,6 +73,7 @@ public:
 	virtual TStructOnScope<FActorComponentInstanceData> GetComponentInstanceData() const override;
 
 	void ApplyComponentInstanceData(struct FTerrianMeshInstanceData* ComponentInstanceData, const bool bPostUCS);
+
 	
 private:
 	NoiseFilter* noiseFilter;
@@ -80,8 +90,8 @@ private:
 	void UpdateAxis();
 	void RebindDelegates();
 	void UnbindPropertyChangeDelegate();
+	
 	FDelegateHandle OnShapeSettingsChangedDelegateHandle;
-	FDelegateHandle OnNoiseSettingsChangedDelegateHandle;
 	
 public:
 	void OnExternalPropChanged(const FName PropertyName);
@@ -112,6 +122,12 @@ public:
 	UPROPERTY();
 	UShapeSettings* ShapeSettings;
 
+	UPROPERTY()
+	FVector2D SampleStart;
+
+	UPROPERTY()
+	float SampleFocus = 1.f;
+
 public:
 	FTerrianMeshInstanceData() {}
 	explicit FTerrianMeshInstanceData(const UTerrianMesh* SourceComponent)
@@ -128,8 +144,10 @@ public:
 	
 	virtual void ApplyToComponent(UActorComponent* Component, const ECacheApplyPhase CacheApplyPhase) override {
 		Super::ApplyToComponent(Component, CacheApplyPhase);
+
+		bool bIsPostUCS = (CacheApplyPhase == ECacheApplyPhase::PostUserConstructionScript);
 		
 		CastChecked<UTerrianMesh>(Component)->ApplyComponentInstanceData(
-				this, (CacheApplyPhase == ECacheApplyPhase::PostUserConstructionScript));
+				this, bIsPostUCS);	
 	}
 };

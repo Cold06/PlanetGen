@@ -14,7 +14,9 @@ public:
 	NoiseFilter();
 	~NoiseFilter();
 
-
-	
 	float Evaluate(const FVector& Point, UNoiseSettings* NoiseSettings);
+
+private:
+	float EvaluateSimple(const FVector& Point, UNoiseSettings* NoiseSettings);
+	float EvaluateRigid(const FVector& Point, UNoiseSettings* NoiseSettings);
 };

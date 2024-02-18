@@ -5,5 +5,4 @@
 
 UShapeSettings::UShapeSettings()
 {
-	NoiseSettings = NewObject<UNoiseSettings>();
 }
